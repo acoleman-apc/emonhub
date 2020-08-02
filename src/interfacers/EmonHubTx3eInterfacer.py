@@ -9,6 +9,19 @@ EmonHub Serial Interfacer key:value pair format
 e.g: ct1:0,ct2:0,ct3:0,ct4:0,vrms:524,pulse:0
 for csv format use the EmonHubSerialInterfacer
 
+[[SerialTx3e]]
+     Type = EmonHubTx3eInterfacer
+      [[[init_settings]]]
+           com_port= /dev/ttyUSB0
+           com_baud = 115200
+      [[[runtimesettings]]]
+           pubchannels = ToEmonCMS,
+           vcal = 260.00
+           ical1 = 90.9, 4.2
+           ical2 = 90.9, 4.2
+           ical3 = 90.9, 4.2
+           ical4 = 16.67, 6.0
+
 """
 
 
