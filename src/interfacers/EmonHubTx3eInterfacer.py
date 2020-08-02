@@ -1,4 +1,5 @@
 import re
+import time
 import Cargo
 from . import EmonHubSerialInterfacer as ehi
 
@@ -30,6 +31,34 @@ class EmonHubTx3eInterfacer(ehi.EmonHubSerialInterfacer):
 
         # Initialize RX buffer
         self._rx_buf = ''
+        
+        self._init_complete = False
+
+    def send_cal(self,cmd):
+      self._ser.write((cmd+"\n").encode());
+      time.sleep(0.1)
+      reply = self._ser.readline().decode().rstrip()
+      if reply=="Cal: "+cmd:
+          self._log.debug("Calibration command sent successfully: "+cmd)
+      else:
+          self._log.error("Calibration command error cmd:"+cmd+", reply:"+reply)
+          
+    def online_configuration(self):
+        self._log.debug("")
+        self._log.debug("Online Calibration")
+        # voltage calibration
+        if "vcal" in self._settings:
+            self.send_cal("k0 %.2f 0.00" % self._settings["vcal"]) 
+        # current calibration
+        for key in self._settings:
+            if key.find("ical")==0: 
+                ch = int(key.split("ical")[1])
+                # If an array of amplitude and phase calibration send both, otherwise set phase cal to 0
+                if isinstance(self._settings[key],list):
+                    self.send_cal("k%d %.2f %.2f" % (ch,self._settings[key][0],self._settings[key][1]))
+                else:
+                    self.send_cal("k%d %.2f 0.00" % (ch,self._settings[key]))
+        self._log.debug("")
 
     def read(self):
         """Read data from serial port and process if complete line received.
@@ -46,11 +75,15 @@ class EmonHubTx3eInterfacer(ehi.EmonHubSerialInterfacer):
         self._rx_buf = self._rx_buf + self._ser.readline().decode()
 
         # If line incomplete, exit
-        if '\r\n' not in self._rx_buf:
+        if '\n' not in self._rx_buf:
             return
 
         # Remove CR,LF
         f = self._rx_buf[:-2].strip()
+        
+        if f=="Settings:" or f=="Calibration:":
+            self._rx_buf = ''
+            return False
 
         # Create a Payload object
         c = Cargo.new_cargo(rawdata=f)
@@ -76,6 +109,12 @@ class EmonHubTx3eInterfacer(ehi.EmonHubSerialInterfacer):
 
                     names.append(parts[0])
                     values.append(value)
+                    
+                    # Send online configuration at the right point
+                    if self._init_complete==False:
+                        self._init_complete = True
+                        self.online_configuration()
+                        
                 else:
                     self._log.debug("invalid input name: " + parts[0])
 
@@ -94,8 +133,21 @@ class EmonHubTx3eInterfacer(ehi.EmonHubSerialInterfacer):
         return c
 
     def set(self, **kwargs):
+        
         for key, setting in self._settings.items():
             if key in kwargs:
                 # replace default
-                # self._log.debug(kwargs[key])
                 self._settings[key] = kwargs[key]
+
+        if "vcal" in kwargs:
+            self._settings["vcal"] = float(kwargs["vcal"])
+        
+        # up to 20 ical channels    
+        for ch in range(1,20):
+            key = "ical"+str(ch)
+            if key in kwargs:
+                if isinstance(kwargs[key],list):
+                    if len(kwargs[key])==2:
+                        self._settings[key] = [float(kwargs[key][0]),float(kwargs[key][1])]
+                else:
+                    self._settings[key] = float(kwargs[key])
